@@ -29,7 +29,7 @@ Read in this order when onboarding or resuming work:
 - **Type:** Hackathon MVP, 7-day build
 - **Tagline:** "Anonymous DAO voting on SUI via ZK proofs"
 - **License:** MIT
-- **Repo:** github.com/<tun>/nullvote-sui (TBD)
+- **Repo:** https://github.com/tuantqse90/nullvote-sui
 
 ---
 

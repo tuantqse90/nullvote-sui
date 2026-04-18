@@ -1,0 +1,18 @@
+[package]
+name = "nullvote-export-vk"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ark-bn254 = "0.4"
+ark-groth16 = { version = "0.4", default-features = false }
+ark-ec = "0.4"
+ark-ff = "0.4"
+ark-serialize = "0.4"
+serde_json = "1"
+num-bigint = "0.4"
+num-traits = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = true
