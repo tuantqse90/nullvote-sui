@@ -108,3 +108,15 @@
   0%, 100% { opacity: 1; }
   50%      { opacity: 0.3; }
 }
+
+/* ── @mysten/dapp-kit ConnectButton — align with our token set ─────── */
+:root {
+  --dapp-kit-button-bg: theme('colors.accent.DEFAULT');
+  --dapp-kit-button-color: theme('colors.text.onAccent');
+  --dapp-kit-button-radius: theme('borderRadius.md');
+}
+
+button[data-dapp-kit-button],
+.mysten-dapp-kit [role='button'] {
+  font-family: var(--font-family, 'Inter Variable', Inter, sans-serif) !important;
+}

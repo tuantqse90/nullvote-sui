@@ -1,12 +1,17 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
+  useCurrentAccount,
   useSignAndExecuteTransaction,
   useSuiClient,
 } from '@mysten/dapp-kit'
 
 import WalletGate from '../components/WalletGate'
 import { buildCreateElectionTx } from '../lib/sui'
+import {
+  listElectionCreatedEvents,
+  type ElectionCreatedEvent,
+} from '../lib/subscribe'
 
 type Status =
   | { kind: 'idle' }
@@ -16,12 +21,35 @@ type Status =
 
 export default function Admin() {
   const suiClient = useSuiClient()
+  const account = useCurrentAccount()
   const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction()
 
   const [title, setTitle] = useState('Treasury Proposal')
   const [candidatesText, setCandidatesText] = useState('No, Yes')
   const [durationHours, setDurationHours] = useState(24)
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
+  const [myElections, setMyElections] = useState<ElectionCreatedEvent[] | null>(
+    null,
+  )
+
+  // Pull all ElectionCreated events filtered to the current wallet.
+  useEffect(() => {
+    if (!account) {
+      setMyElections(null)
+      return
+    }
+    let alive = true
+    listElectionCreatedEvents(suiClient as any, account.address)
+      .then((events) => {
+        if (alive) setMyElections(events)
+      })
+      .catch(() => {
+        if (alive) setMyElections([])
+      })
+    return () => {
+      alive = false
+    }
+  }, [suiClient, account, status.kind])
 
   async function onCreate() {
     try {
@@ -39,11 +67,8 @@ export default function Admin() {
         candidates,
         endTimeMs,
       })
-      // Serialize to bypass the @mysten/sui version-skew between the top-level
-      // and the one dapp-kit ships — `transaction: string` is always safe.
       const result = await signAndExecute({ transaction: await tx.toJSON() })
 
-      // Look up the created Election shared object ID via tx effects.
       const created = await (suiClient as any).getTransactionBlock({
         digest: result.digest,
         options: { showObjectChanges: true },
@@ -71,18 +96,18 @@ export default function Admin() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto py-10 space-y-10">
+    <div className="max-w-4xl mx-auto py-10 space-y-12">
       <div>
         <p className="phase-marker mb-4">
           <span className="text-accent">█</span>
           <span>admin</span>
         </p>
         <h1 className="text-h3 text-text-primary mb-3">Create a new election</h1>
-        <p className="text-text-secondary">
+        <p className="text-text-secondary max-w-2xl">
           Whoever signs this transaction becomes the admin. The election goes
           live in <strong>Registration</strong> phase — call{' '}
           <code className="hash">finalize_registration</code> from the backend
-          once enough voters have registered.
+          after voters have registered.
         </p>
       </div>
 
@@ -109,7 +134,7 @@ export default function Admin() {
                 type="number"
                 min={1}
                 max={720}
-                className="input"
+                className="input max-w-xs"
                 value={durationHours}
                 onChange={(e) => setDurationHours(Number(e.target.value))}
               />
@@ -127,10 +152,10 @@ export default function Admin() {
 
             {status.kind === 'done' ? (
               <div className="border-t border-bg-raised pt-4 space-y-3">
-                <Stat label="election_id" value={status.electionId} />
+                <Stat label="election_id (u64)" value={status.electionId} />
                 <Stat label="shared object" value={status.electionObject} />
                 <Stat label="tx digest" value={status.digest} />
-                <div className="flex gap-4 pt-2">
+                <div className="flex flex-wrap gap-3 pt-2">
                   <Link
                     to={`/elections/${status.electionObject}/register`}
                     className="btn-secondary"
@@ -153,6 +178,64 @@ export default function Admin() {
           </div>
         )}
       </WalletGate>
+
+      {account && myElections !== null ? (
+        <section className="space-y-5">
+          <h2 className="phase-marker">
+            <span className="text-accent">█</span>
+            <span>your elections ({myElections.length})</span>
+          </h2>
+          {myElections.length === 0 ? (
+            <div className="card text-text-muted">
+              No elections created from this wallet yet.
+            </div>
+          ) : (
+            <div className="card divide-y divide-bg-raised !p-0">
+              {myElections.map((e) => {
+                const ended = Date.now() >= e.endTimeMs
+                return (
+                  <div
+                    key={e.electionObject}
+                    className="flex flex-wrap items-center gap-4 p-5"
+                  >
+                    <div className="flex-1 min-w-[240px] space-y-1">
+                      <div className="font-display text-lg text-text-primary">
+                        {e.title}
+                      </div>
+                      <div className="text-xs font-mono text-text-muted">
+                        {e.candidates.join(' · ')} — {ended ? 'ended' : 'active'}
+                      </div>
+                      <div className="hash !text-xs">
+                        {e.electionObject.slice(0, 12)}…{e.electionObject.slice(-6)}
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Link
+                        to={`/elections/${e.electionObject}/register`}
+                        className="btn-secondary !py-2 !px-4 !text-sm"
+                      >
+                        Register
+                      </Link>
+                      <Link
+                        to={`/elections/${e.electionObject}/vote`}
+                        className="btn-secondary !py-2 !px-4 !text-sm"
+                      >
+                        Vote
+                      </Link>
+                      <Link
+                        to={`/elections/${e.electionObject}/results`}
+                        className="btn-primary !py-2 !px-4 !text-sm"
+                      >
+                        Tally →
+                      </Link>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </section>
+      ) : null}
     </div>
   )
 }
@@ -175,7 +258,6 @@ function Stat({ label, value }: { label: string; value: string }) {
   )
 }
 
-/** Random u64 election id, avoiding zero. */
 function randomElectionId(): bigint {
   const arr = new Uint8Array(8)
   crypto.getRandomValues(arr)
