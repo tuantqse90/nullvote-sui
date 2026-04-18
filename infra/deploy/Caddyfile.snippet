@@ -1,0 +1,31 @@
+# NullVote — added by infra/deploy/deploy.sh
+# Append to /etc/caddy/Caddyfile, then `systemctl reload caddy`.
+
+nullvote.nullshift.sh {
+    encode zstd gzip
+
+    # Backend — /api, /docs, /openapi.json, /health.
+    handle /api/* {
+        reverse_proxy localhost:8600
+    }
+    handle /docs* {
+        reverse_proxy localhost:8600
+    }
+    handle /openapi.json {
+        reverse_proxy localhost:8600
+    }
+    handle /health {
+        reverse_proxy localhost:8600
+    }
+
+    # Static frontend — built dist/ is rsynced to /opt/nullvote/frontend-dist/.
+    handle {
+        root * /opt/nullvote/frontend-dist
+        try_files {path} /index.html
+        file_server
+
+        @assets path_regexp ^/(circuit|assets)/
+        header @assets Cache-Control "public, max-age=31536000, immutable"
+        header @assets Access-Control-Allow-Origin "*"
+    }
+}

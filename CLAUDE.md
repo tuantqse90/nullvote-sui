@@ -125,6 +125,21 @@ Scope tags: `circuit`, `move`, `backend`, `frontend`, `docs`, `ci`.
 
 ---
 
+## Deployment topology
+
+Live at [nullvote.nullshift.sh](https://nullvote.nullshift.sh) (testnet).
+
+Shared Hostinger VPS `76.13.183.138` (also hosts football-predict, tasco-drive, etc.). One Caddy reverse-proxy fronts every subdomain:
+
+- `nullvote.nullshift.sh/api/*`, `/docs*`, `/openapi.json`, `/health` → `localhost:8600` (backend Docker container `nullvote-backend`)
+- everything else → static file server on `/opt/nullvote/frontend-dist/` (Caddy-served, no container)
+
+Port reservation on the shared VPS:
+- 8600 = backend (bound to 127.0.0.1)
+- 3600 = reserved for NullVote, currently unused (frontend is static)
+
+Deploy with `bash infra/deploy/deploy.sh` — script is idempotent, does Cloudflare DNS upsert, rsync, `docker compose up`, Caddyfile merge, smoke tests. Secrets live in `infra/secrets/vps.env` (gitignored).
+
 ## Environment variables
 
 Backend:

@@ -1,0 +1,24 @@
+# Production compose for NullVote backend on Hostinger VPS.
+# Binds backend to 127.0.0.1:8600 — Caddy reverse-proxies from outside.
+# Frontend is served directly by Caddy (see infra/deploy/Caddyfile.snippet)
+# so there's no frontend container here.
+
+services:
+  backend:
+    # Build context is the parent directory so `backend/` is reachable at the
+    # docker-compose level on the VPS (which mirrors `/opt/nullvote/`).
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+    container_name: nullvote-backend
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8600:8000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - PACKAGE_ID=0x669ec8fee063206af29be9407865b5e2698f0f8f604b568c97c4e296acdb63be
+      - SUI_RPC_URL=https://fullnode.testnet.sui.io:443
+      - SUI_NETWORK=testnet
+      - DATABASE_URL=sqlite+aiosqlite:///./data/voters.db
+      - LOG_LEVEL=info

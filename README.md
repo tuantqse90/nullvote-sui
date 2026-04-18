@@ -14,9 +14,9 @@ NullVote lets DAOs run on-chain votes where **voter identity is cryptographicall
 
 ## Demo
 
-- **Live app:** [nullvote.vercel.app](https://nullvote.vercel.app) (testnet)
-- **Video:** [3-min demo](https://youtube.com/...)
-- **Explorer:** [SUI testnet package](https://suiscan.xyz/testnet/object/...)
+- **Live app:** [nullvote.nullshift.sh](https://nullvote.nullshift.sh) (testnet, deployed on Hostinger VPS)
+- **Video:** [3-min demo](https://youtube.com/...) _(recording pending Day 7)_
+- **Explorer:** [SUI testnet package](https://suiscan.xyz/testnet/object/0x669ec8fee063206af29be9407865b5e2698f0f8f604b568c97c4e296acdb63be)
 
 ## Quickstart (local)
 
