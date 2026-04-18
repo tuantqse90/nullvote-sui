@@ -76,14 +76,29 @@ Read in this order when onboarding or resuming work:
 
 ## Poseidon parameters (authoritative)
 
-- Curve: BN254
-- Variant: `poseidon()` from circomlib (NOT poseidon2 or poseidon-bls)
-- t (width): depends on input count — use `Poseidon(n)` component with n inputs
-- JS lib: `poseidon-lite` — `poseidon2([a,b])` for 2 inputs, `poseidon1([a])` for 1
-- Python lib: `circomlib-py` — `poseidon_hash([a, b])`
-- **Canonical test vector:** `Poseidon([1, 2]) == 0x115cc0f5e7d690413df64c6b9662e9cf2a3617f2743245519e19607a4417189a`
+- Curve: BN254 scalar field
+- Variant: `poseidon()` from circomlib (NOT poseidon2-permutation or poseidon-bls)
+- t (state width): `nInputs + 1`; capacity element is always 0
+- Rounds: `N_ROUNDS_F = 8` (4 full + 4 full), `N_ROUNDS_P[t-2]` partial (for t=3: 57)
+- **JS:** `poseidon-lite` — `poseidon2([a,b])`, `poseidon3([a,b,c])`, …
+- **Circom:** `include "circomlib/circuits/poseidon.circom"` → `component h = Poseidon(n);`
+- **Python:** native port in `backend/src/crypto/poseidon.py` — `poseidon_hash([a, b])`.
+  - Constants source: `circomlibjs/src/poseidon_constants.json`
+  - Exported via `node circuits/scripts/export_poseidon_constants.js` → writes `backend/src/crypto/poseidon_constants.json`
+  - **Regenerate whenever `circomlibjs` is upgraded.** No pip package matches — do NOT add `circomlib-py` back to `pyproject.toml`.
+- **Canonical test vectors (all 3 langs must match):**
+  - `Poseidon([1, 2])    == 0x115cc0f5e7d690413df64c6b9662e9cf2a3617f2743245519e19607a4417189a`
+  - `Poseidon([3, 4])    == 0x20a3af0435914ccd84b806164531b0cd36e37d4efb93efab76913a93e1f30996`
+  - `Poseidon([1, 2, 3]) == 0x0e7732d89e6939c0ff03d5e58dab6302f3230e269dc5b968f725df34ab36d732`
 
-Verify this matches in all 3 languages on Day 1. If mismatch, STOP and investigate.
+**Validation commands:**
+- JS: `cd circuits && npm test`
+- Python: `cd backend && source .venv/bin/activate && pytest tests/test_poseidon.py`
+- Circom: `cd circuits && circom tests/poseidon_test.circom --r1cs --wasm --sym -o build/ && node build/poseidon_test_js/generate_witness.js build/poseidon_test_js/poseidon_test.wasm <input.json> build/poseidon_test.wtns`
+
+If any mismatch on these canonical values, STOP immediately — commitments, nullifiers, and Merkle inclusion proofs all break silently when hashes diverge.
+
+**Known bug source:** MDS matrix indexing in the port is `M[i][j] * state[j]` (row-major), NOT `M[j][i]`. Transposing silently produces wrong hashes that still look plausible.
 
 ---
 

@@ -1,70 +1,90 @@
-"""Cross-language Poseidon test vector.
+"""Cross-language Poseidon test vectors.
 
-MUST match output of JS (poseidon-lite) and Circom (circomlib) for same input.
-If any language produces a different hash, STOP and debug before continuing Day 2+.
-Canonical source: circomlib BN254 Poseidon, t=3 (2-input variant).
+Validates the pure-Python port in backend/src/crypto/poseidon.py against known
+canonical values produced by circomlibjs's reference implementation and
+poseidon-lite (JS) — the same hash the Circom voting circuit uses.
+
+If any vector mismatches, the entire voting system breaks silently (commitments,
+nullifiers, Merkle tree all depend on consistent hashing across languages).
+Do NOT proceed with Day 2+ work until these are all green.
 """
 
-import pytest
+from __future__ import annotations
 
-CANONICAL = 0x115CC0F5E7D690413DF64C6B9662E9CF2A3617F2743245519E19607A4417189A
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from src.crypto.poseidon import BN254_SCALAR_FIELD, poseidon_hash  # noqa: E402
 
 
-def _load_poseidon():
-    """Import whichever circomlib-compatible Python Poseidon library is available.
+# Vectors produced by circomlibjs.buildPoseidonReference() — see
+# `node -e` snippet in the Day 1 session log. These are the ground truth.
+CANONICAL_VECTORS: list[tuple[list[int], int]] = [
+    (
+        [1, 2],
+        0x115CC0F5E7D690413DF64C6B9662E9CF2A3617F2743245519E19607A4417189A,
+    ),
+    (
+        [3, 4],
+        0x20A3AF0435914CCD84B806164531B0CD36E37D4EFB93EFAB76913A93E1F30996,
+    ),
+    (
+        [1, 2, 3],
+        0x0E7732D89E6939C0FF03D5E58DAB6302F3230E269DC5B968F725DF34AB36D732,
+    ),
+]
 
-    Tries a few known package names since the Python ecosystem has several
-    BN254-Poseidon implementations with slightly different module paths.
-    """
-    errs: list[str] = []
 
-    try:
-        from circomlibpy.poseidon import poseidon_hash  # type: ignore
-
-        return poseidon_hash, "circomlibpy.poseidon.poseidon_hash"
-    except Exception as e:
-        errs.append(f"circomlibpy: {e!r}")
-
-    try:
-        from circomlib_py import poseidon_hash  # type: ignore
-
-        return poseidon_hash, "circomlib_py.poseidon_hash"
-    except Exception as e:
-        errs.append(f"circomlib_py: {e!r}")
-
-    try:
-        from poseidon_hash import poseidon  # type: ignore
-
-        return poseidon, "poseidon_hash.poseidon"
-    except Exception as e:
-        errs.append(f"poseidon_hash: {e!r}")
-
-    pytest.skip(
-        "No circomlib-compatible Poseidon library installed. "
-        "Install with `pip install circomlib-py` (preferred) "
-        "or `pip install poseidon-hash`. Attempts:\n  - " + "\n  - ".join(errs)
+def test_bn254_prime_is_correct() -> None:
+    assert (
+        BN254_SCALAR_FIELD
+        == 21888242871839275222246405745257275088548364400416034343698204186575808495617
     )
 
 
-def test_poseidon_canonical_vector() -> None:
-    hash_fn, source = _load_poseidon()
+def test_canonical_vectors() -> None:
+    mismatches: list[str] = []
+    for inputs, expected in CANONICAL_VECTORS:
+        got = poseidon_hash(inputs)
+        if got != expected:
+            mismatches.append(
+                f"Poseidon({inputs}): got={hex(got)}, expected={hex(expected)}"
+            )
+    assert not mismatches, "\n".join(mismatches)
 
-    out = int(hash_fn([1, 2]))
 
-    assert out == CANONICAL, (
-        f"Poseidon mismatch via {source}: "
-        f"got {hex(out)}, expected {hex(CANONICAL)}"
-    )
+def test_output_is_field_element() -> None:
+    # A few random-ish inputs; just ensure output is always < field prime.
+    for inputs in ([0, 0], [BN254_SCALAR_FIELD - 1, 1], [42, 1337]):
+        got = poseidon_hash(inputs)
+        assert 0 <= got < BN254_SCALAR_FIELD
+
+
+def test_input_count_bounds() -> None:
+    import pytest
+
+    with pytest.raises(ValueError):
+        poseidon_hash([])
+    with pytest.raises(ValueError):
+        poseidon_hash([0] * 17)
 
 
 if __name__ == "__main__":
-    hash_fn, source = _load_poseidon()
-    out = int(hash_fn([1, 2]))
-    print(f"  lib:      {source}")
-    print(f"  input:    [1, 2]")
-    print(f"  output:   {hex(out).zfill(66)}")
-    print(f"  expected: {hex(CANONICAL).zfill(66)}")
-    if out != CANONICAL:
-        print("\n✗ MISMATCH — Python Poseidon does not match canonical value")
+    # Manual smoke-test: `python backend/tests/test_poseidon.py`
+    ok = True
+    for inputs, expected in CANONICAL_VECTORS:
+        got = poseidon_hash(inputs)
+        ok &= got == expected
+        mark = "✓" if got == expected else "✗"
+        print(
+            f"  {mark} Poseidon({inputs})",
+            f"\n    got:      0x{got:064x}",
+            f"\n    expected: 0x{expected:064x}",
+        )
+    if not ok:
+        print("\nMISMATCH — Poseidon port is broken.")
         raise SystemExit(1)
-    print("\n✓ Python Poseidon([1, 2]) matches canonical value")
+    print("\n✓ All canonical vectors match.")
