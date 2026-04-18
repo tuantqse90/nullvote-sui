@@ -2,9 +2,9 @@ import { Link } from 'react-router-dom'
 
 export default function Home() {
   return (
-    <div className="space-y-20 max-w-6xl mx-auto py-10">
+    <div className="space-y-12 md:space-y-20 max-w-6xl mx-auto py-6 md:py-10">
       {/* Hero */}
-      <section className="space-y-2">
+      <section className="space-y-1 md:space-y-2 overflow-hidden">
         <div className="hero-repeat hero-repeat-1">
           NULL<span className="text-accent">*</span>VOTE
         </div>
@@ -16,8 +16,8 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="max-w-2xl space-y-8">
-        <p className="text-xl md:text-2xl text-text-secondary leading-snug">
+      <section className="max-w-2xl space-y-6 md:space-y-8">
+        <p className="text-lg md:text-2xl text-text-secondary leading-snug">
           Anonymous DAO governance voting on SUI. Zero-knowledge proofs verify
           eligibility without revealing identity. Votes are public.{' '}
           <span className="text-accent">Voters are anonymous.</span>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   useCurrentAccount,
@@ -7,11 +7,17 @@ import {
 } from '@mysten/dapp-kit'
 
 import WalletGate from '../components/WalletGate'
-import { buildCreateElectionTx } from '../lib/sui'
+import {
+  buildCreateElectionTx,
+  buildFinalizeRegistrationTx,
+  fetchElection,
+  type ElectionView,
+} from '../lib/sui'
 import {
   listElectionCreatedEvents,
   type ElectionCreatedEvent,
 } from '../lib/subscribe'
+import { closeRegistration } from '../lib/backend'
 
 type Status =
   | { kind: 'idle' }
@@ -31,6 +37,12 @@ export default function Admin() {
   const [myElections, setMyElections] = useState<ElectionCreatedEvent[] | null>(
     null,
   )
+  const [electionStates, setElectionStates] = useState<
+    Record<string, ElectionView | null>
+  >({})
+  const [finalizeBusy, setFinalizeBusy] = useState<string | null>(null)
+  const [finalizeError, setFinalizeError] = useState<string | null>(null)
+  const [finalizeTick, setFinalizeTick] = useState(0)
 
   // Pull all ElectionCreated events filtered to the current wallet.
   useEffect(() => {
@@ -49,7 +61,67 @@ export default function Admin() {
     return () => {
       alive = false
     }
-  }, [suiClient, account, status.kind])
+  }, [suiClient, account, status.kind, finalizeTick])
+
+  // Once we have the list, fetch each election's on-chain phase so we know
+  // when to show the Finalize button.
+  useEffect(() => {
+    if (!myElections) return
+    let alive = true
+    ;(async () => {
+      const entries = await Promise.all(
+        myElections.map(async (e) => {
+          try {
+            const view = await fetchElection(suiClient as any, e.electionObject)
+            return [e.electionObject, view] as const
+          } catch {
+            return [e.electionObject, null] as const
+          }
+        }),
+      )
+      if (alive) setElectionStates(Object.fromEntries(entries))
+    })()
+    return () => {
+      alive = false
+    }
+  }, [myElections, suiClient, finalizeTick])
+
+  const registrationOpen = useMemo(() => {
+    const set = new Set<string>()
+    for (const [id, v] of Object.entries(electionStates)) {
+      if (v && v.phase === 0) set.add(id)
+    }
+    return set
+  }, [electionStates])
+
+  async function onFinalize(electionObject: string) {
+    setFinalizeError(null)
+    setFinalizeBusy(electionObject)
+    try {
+      const resp = await closeRegistration(electionObject, electionObject)
+      if (resp.voter_count === 0) {
+        throw new Error('no voters registered yet — cannot finalize')
+      }
+      // merkle_root comes back as 0x… hex; convert to bytes for the Move call.
+      const rootHex = resp.merkle_root.startsWith('0x')
+        ? resp.merkle_root.slice(2)
+        : resp.merkle_root
+      const rootBytes = new Uint8Array(32)
+      for (let i = 0; i < 32; i++) {
+        rootBytes[i] = parseInt(rootHex.slice(i * 2, i * 2 + 2), 16)
+      }
+      const tx = buildFinalizeRegistrationTx({
+        electionObject,
+        merkleRoot: rootBytes,
+      })
+      await signAndExecute({ transaction: await tx.toJSON() })
+      setFinalizeTick((n) => n + 1)
+    } catch (err) {
+      setFinalizeError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setFinalizeBusy(null)
+    }
+  }
 
   async function onCreate() {
     try {
@@ -96,13 +168,13 @@ export default function Admin() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto py-10 space-y-12">
+    <div className="max-w-4xl mx-auto py-6 md:py-10 space-y-10 md:space-y-12">
       <div>
         <p className="phase-marker mb-4">
           <span className="text-accent">█</span>
           <span>admin</span>
         </p>
-        <h1 className="text-h3 text-text-primary mb-3">Create a new election</h1>
+        <h1 className="text-2xl md:text-h3 text-text-primary mb-3">Create a new election</h1>
         <p className="text-text-secondary max-w-2xl">
           Whoever signs this transaction becomes the admin. The election goes
           live in <strong>Registration</strong> phase — call{' '}
@@ -192,7 +264,13 @@ export default function Admin() {
           ) : (
             <div className="card divide-y divide-bg-raised !p-0">
               {myElections.map((e) => {
+                const state = electionStates[e.electionObject]
+                const phase = state?.phase
+                const phaseLabel =
+                  phase === 0 ? 'registration' : phase === 1 ? 'voting' : phase === 2 ? 'closed' : '…'
                 const ended = Date.now() >= e.endTimeMs
+                const canFinalize = registrationOpen.has(e.electionObject)
+                const busy = finalizeBusy === e.electionObject
                 return (
                   <div
                     key={e.electionObject}
@@ -203,19 +281,29 @@ export default function Admin() {
                         {e.title}
                       </div>
                       <div className="text-xs font-mono text-text-muted">
-                        {e.candidates.join(' · ')} — {ended ? 'ended' : 'active'}
+                        {e.candidates.join(' · ')} — {phaseLabel}
+                        {phase === 1 && ended ? ' (ended)' : null}
                       </div>
                       <div className="hash !text-xs">
                         {e.electionObject.slice(0, 12)}…{e.electionObject.slice(-6)}
                       </div>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <Link
                         to={`/elections/${e.electionObject}/register`}
                         className="btn-secondary !py-2 !px-4 !text-sm"
                       >
                         Register
                       </Link>
+                      {canFinalize ? (
+                        <button
+                          onClick={() => onFinalize(e.electionObject)}
+                          disabled={busy}
+                          className="btn-secondary !py-2 !px-4 !text-sm"
+                        >
+                          {busy ? 'Finalizing…' : 'Finalize →'}
+                        </button>
+                      ) : null}
                       <Link
                         to={`/elections/${e.electionObject}/vote`}
                         className="btn-secondary !py-2 !px-4 !text-sm"
@@ -232,6 +320,11 @@ export default function Admin() {
                   </div>
                 )
               })}
+              {finalizeError ? (
+                <div className="p-5 text-sm text-danger font-mono">
+                  {finalizeError}
+                </div>
+              ) : null}
             </div>
           )}
         </section>

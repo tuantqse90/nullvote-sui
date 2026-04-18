@@ -14,17 +14,25 @@ export default function LiveTally({ candidates, tally }: Props) {
       {candidates.map((name, i) => {
         const count = counts[i]
         const pct = Math.round((count / total) * 100)
-        const barCells = 20
-        const filled = Math.round((pct / 100) * barCells)
-        const bar = '█'.repeat(filled) + '░'.repeat(barCells - filled)
         return (
-          <div key={name} className="flex items-center gap-4 font-mono text-sm">
-            <span className="w-24 text-text-secondary uppercase tracking-wider">
+          <div
+            key={name}
+            className="grid grid-cols-[minmax(60px,auto)_1fr_auto] items-center gap-3 font-mono text-sm"
+          >
+            <span className="text-text-secondary uppercase tracking-wider">
               {name}
             </span>
-            <span className="text-accent">{bar}</span>
-            <span className="text-text-secondary tabular-nums ml-auto flex items-baseline gap-2">
-              <FlipCounter value={count} className="text-xl" />
+            <div
+              aria-hidden
+              className="relative h-4 rounded-sm bg-bg-raised overflow-hidden"
+            >
+              <div
+                className="absolute inset-y-0 left-0 bg-accent transition-[width] duration-500 ease-out"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            <span className="text-text-secondary tabular-nums flex items-baseline gap-2 whitespace-nowrap">
+              <FlipCounter value={count} className="text-lg md:text-xl" />
               <span className="text-text-muted">·</span>
               <span>{pct}%</span>
             </span>

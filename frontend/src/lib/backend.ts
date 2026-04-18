@@ -64,3 +64,25 @@ export function fetchMerkleProof(
 export function fetchMerkleTree(electionId: string): Promise<TreeResponse> {
   return fetchJson(`${BACKEND_URL}/api/elections/${electionId}/merkle-tree`)
 }
+
+export interface CloseRegistrationResponse {
+  election_id: string
+  election_object: string
+  package_id: string
+  merkle_root: string
+  voter_count: number
+  cli_command: string
+  executed: boolean
+  tx_digest: string | null
+}
+
+export function closeRegistration(
+  electionId: string,
+  electionObject: string,
+): Promise<CloseRegistrationResponse> {
+  const qs = new URLSearchParams({ election_object: electionObject })
+  return fetchJson(
+    `${BACKEND_URL}/api/elections/${electionId}/close-registration?${qs}`,
+    { method: 'POST', body: '{}' },
+  )
+}

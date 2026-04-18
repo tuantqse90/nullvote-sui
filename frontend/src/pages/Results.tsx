@@ -57,13 +57,13 @@ export default function Results() {
   const ended = election ? now >= Number(election.endTimeMs) : false
 
   return (
-    <div className="max-w-4xl mx-auto py-10 space-y-10">
-      <div className="flex flex-wrap items-center gap-4">
+    <div className="max-w-4xl mx-auto py-6 md:py-10 space-y-8 md:space-y-10">
+      <div className="flex flex-wrap items-center gap-3 md:gap-4">
         <span className="live-badge">
           <span className="live-dot">█</span>
           {ended ? 'CLOSED' : 'LIVE'}
         </span>
-        <h1 className="text-h3 text-text-primary">
+        <h1 className="text-2xl md:text-h3 text-text-primary break-words">
           {election?.title ?? 'Loading…'}
         </h1>
       </div>

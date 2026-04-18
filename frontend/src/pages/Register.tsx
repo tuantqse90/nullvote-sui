@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useSignPersonalMessage } from '@mysten/dapp-kit'
 
@@ -13,6 +13,15 @@ import {
 } from '../lib/crypto'
 import { registerCommitment } from '../lib/backend'
 
+interface StoredIdentity {
+  electionId: string
+  address: string
+  sk: string
+  r: string
+  commitment: string
+  createdAt: string
+}
+
 type Status =
   | { kind: 'idle' }
   | { kind: 'signing' }
@@ -26,6 +35,21 @@ export default function Register() {
   const { id = '' } = useParams<{ id: string }>()
   const { mutateAsync: signPersonalMessage } = useSignPersonalMessage()
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
+  const [importError, setImportError] = useState<string | null>(null)
+  const [importText, setImportText] = useState('')
+  const [importOpen, setImportOpen] = useState(false)
+  const [existingTick, setExistingTick] = useState(0)
+
+  const existing = useMemo<StoredIdentity | null>(() => {
+    void existingTick
+    const raw = localStorage.getItem(LOCALSTORAGE_KEY(id))
+    if (!raw) return null
+    try {
+      return JSON.parse(raw) as StoredIdentity
+    } catch {
+      return null
+    }
+  }, [id, existingTick])
 
   async function onRegister(address: string) {
     setStatus({ kind: 'signing' })
@@ -42,15 +66,16 @@ export default function Register() {
       const pk = derivePk(sk)
       const commitment = computeCommitment(pk, r)
 
-      localStorage.setItem(
-        LOCALSTORAGE_KEY(id),
-        JSON.stringify({
-          sk: bigintToHex32(sk),
-          r: bigintToHex32(r),
-          commitment: bigintToHex32(commitment),
-          address,
-        }),
-      )
+      const stored: StoredIdentity = {
+        electionId: id,
+        address,
+        sk: bigintToHex32(sk),
+        r: bigintToHex32(r),
+        commitment: bigintToHex32(commitment),
+        createdAt: new Date().toISOString(),
+      }
+      localStorage.setItem(LOCALSTORAGE_KEY(id), JSON.stringify(stored))
+      setExistingTick((n) => n + 1)
 
       setStatus({ kind: 'posting' })
       const result = await registerCommitment(
@@ -68,13 +93,13 @@ export default function Register() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto py-10 space-y-10">
+    <div className="max-w-2xl mx-auto py-6 md:py-10 space-y-8 md:space-y-10">
       <div>
         <p className="phase-marker mb-4">
           <span className="text-accent">█</span>
           <span>phase 01 — registration</span>
         </p>
-        <h1 className="text-h3 text-text-primary mb-3">Register to vote</h1>
+        <h1 className="text-2xl md:text-h3 text-text-primary mb-3">Register to vote</h1>
         <p className="text-text-secondary">
           Election{' '}
           <code className="hash">{id.slice(0, 10)}…{id.slice(-6)}</code>. The
@@ -107,16 +132,24 @@ export default function Register() {
                     : 'Sign & register →'}
             </button>
 
-            {status.kind === 'done' ? (
-              <div className="space-y-2 border-t border-bg-raised pt-4">
+            {status.kind === 'done' && existing ? (
+              <div className="space-y-3 border-t border-bg-raised pt-4">
                 <div className="text-xs text-text-muted font-mono uppercase">
                   Commitment
                 </div>
                 <div className="hash break-all">{status.commitment}</div>
+                <button
+                  type="button"
+                  className="btn-secondary !py-2 !px-4 !text-sm"
+                  onClick={() => downloadIdentity(existing)}
+                >
+                  Export identity backup
+                </button>
                 <p className="text-xs text-text-muted">
-                  Secret + salt are stored in this browser's localStorage under
-                  key <code className="hash">nullvote:identity:{id.slice(0, 8)}…</code>
-                  — back it up if you plan to vote from another device.
+                  Downloads a JSON with your secret, salt, and commitment. Store
+                  it somewhere safe — the secret never leaves your device, so
+                  if you clear this browser's data without a backup you can't
+                  vote in this election from a new device.
                 </p>
               </div>
             ) : null}
@@ -127,6 +160,69 @@ export default function Register() {
           </div>
         )}
       </WalletGate>
+
+      {/* ── Import section ─────────────────────────────────────── */}
+      <section className="card space-y-3">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <h3 className="text-sm font-mono uppercase text-text-muted">
+            Import an existing identity
+          </h3>
+          <button
+            type="button"
+            className="text-xs text-text-muted font-mono hover:text-text-primary transition"
+            onClick={() => setImportOpen((v) => !v)}
+          >
+            {importOpen ? 'close' : 'paste JSON →'}
+          </button>
+        </div>
+        {importOpen ? (
+          <>
+            <textarea
+              className="input font-mono text-xs h-28 resize-none"
+              placeholder='{"electionId":"0x…","sk":"0x…","r":"0x…","commitment":"0x…","address":"0x…"}'
+              value={importText}
+              onChange={(e) => {
+                setImportText(e.target.value)
+                setImportError(null)
+              }}
+            />
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                className="btn-secondary !py-2 !px-4 !text-sm"
+                onClick={() => {
+                  try {
+                    const parsed = parseAndValidate(importText, id)
+                    localStorage.setItem(
+                      LOCALSTORAGE_KEY(id),
+                      JSON.stringify(parsed),
+                    )
+                    setExistingTick((n) => n + 1)
+                    setImportText('')
+                    setImportOpen(false)
+                  } catch (err) {
+                    setImportError(
+                      err instanceof Error ? err.message : String(err),
+                    )
+                  }
+                }}
+              >
+                Restore →
+              </button>
+              {importError ? (
+                <span className="text-xs text-danger font-mono">
+                  {importError}
+                </span>
+              ) : null}
+            </div>
+          </>
+        ) : existing ? (
+          <p className="text-xs text-text-muted">
+            Already have an identity stored in this browser
+            (commitment <span className="hash">{existing.commitment.slice(0, 14)}…</span>).
+          </p>
+        ) : null}
+      </section>
     </div>
   )
 }
@@ -140,4 +236,33 @@ function base64ToBytes(b64: string): Uint8Array {
   const out = new Uint8Array(bin.length)
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
   return out
+}
+
+function downloadIdentity(identity: StoredIdentity) {
+  const blob = new Blob([JSON.stringify(identity, null, 2)], {
+    type: 'application/json',
+  })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `nullvote-identity-${identity.electionId.slice(0, 10)}.json`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+function parseAndValidate(json: string, expectedElection: string): StoredIdentity {
+  const parsed = JSON.parse(json)
+  for (const field of ['electionId', 'address', 'sk', 'r', 'commitment']) {
+    if (typeof parsed[field] !== 'string') {
+      throw new Error(`missing field: ${field}`)
+    }
+  }
+  if (parsed.electionId !== expectedElection) {
+    throw new Error(
+      `wrong election: backup is for ${parsed.electionId.slice(0, 10)}… but current page is ${expectedElection.slice(0, 10)}…`,
+    )
+  }
+  return parsed as StoredIdentity
 }

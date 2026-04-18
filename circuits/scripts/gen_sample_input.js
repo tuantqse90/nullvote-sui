@@ -9,19 +9,25 @@ import { poseidon1, poseidon2 } from 'poseidon-lite';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomBytes } from 'node:crypto';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUT = resolve(__dirname, '../inputs/sample_input.json');
+const VOTERS_OUT = resolve(__dirname, '../inputs/sample_voters.json');
 
 const DEPTH = 8; // must match `Vote(8)` in vote.circom
 const ELECTION_ID = 0x1234567890abcdefn;
 const VOTE = 1n;           // YES
 const NUM_CANDIDATES = 2n; // [NO, YES]
 
-// 31-byte randoms are always < BN254 scalar prime, which is ~254 bits.
-function randField() {
-  return BigInt('0x' + randomBytes(31).toString('hex'));
+// Deterministic pseudo-randoms — Poseidon of a counter, seeded so every run
+// of this script yields bit-identical output. That keeps `proof_points.bin`,
+// `public_inputs.bin`, the Move test fixtures in election_tests.move, and the
+// VK_BYTES constant in vk.move all in sync across regenerations.
+const SEED = 0xdeadbeefcafebaben; // nice-and-constant
+function detField(label) {
+  let h = 0n;
+  for (const ch of String(label)) h = (h << 16n) ^ BigInt(ch.charCodeAt(0));
+  return poseidon2([SEED, h]);
 }
 
 function buildTree(leaves, depth) {
@@ -56,9 +62,9 @@ function getProof(layers, leafIndex, depth) {
 }
 
 // ── Voters ──────────────────────────────────────────────
-const voters = Array.from({ length: 3 }, () => {
-  const sk = randField();
-  const r = randField();
+const voters = Array.from({ length: 3 }, (_, i) => {
+  const sk = detField(`sk-${i}`);
+  const r = detField(`r-${i}`);
   const pk = poseidon1([sk]);
   const commitment = poseidon2([pk, r]);
   return { sk, r, pk, commitment };
@@ -92,6 +98,15 @@ const input = {
 mkdirSync(dirname(OUT), { recursive: true });
 writeFileSync(OUT, JSON.stringify(input, null, 2));
 
+// Also emit a voter list the backend E2E can replay into
+// POST /api/elections/:id/register to verify the Python Merkle tree produces
+// the same root as the circuit input.
+const voters_out = voters.map((v, i) => ({
+  wallet_addr: `0x${(i + 1).toString(16).padStart(64, '0')}`,
+  commitment: '0x' + v.commitment.toString(16).padStart(64, '0'),
+}));
+writeFileSync(VOTERS_OUT, JSON.stringify(voters_out, null, 2));
+
 console.log('█ Wrote', OUT);
 console.log('  voters:    ', voters.length);
 console.log('  depth:     ', DEPTH);
@@ -101,3 +116,4 @@ console.log('  election:  ', '0x' + ELECTION_ID.toString(16));
 console.log('  root:      ', '0x' + root.toString(16));
 console.log('  commitment:', '0x' + voter.commitment.toString(16));
 console.log('  nullifier: ', '0x' + nullifier.toString(16));
+console.log('  voters →  ', VOTERS_OUT);

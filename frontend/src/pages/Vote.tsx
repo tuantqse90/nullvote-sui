@@ -132,13 +132,13 @@ export default function Vote() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto py-10 space-y-10">
+    <div className="max-w-3xl mx-auto py-6 md:py-10 space-y-8 md:space-y-10">
       <div>
         <p className="phase-marker mb-4">
           <span className="text-accent">█</span>
           <span>phase 02 — voting</span>
         </p>
-        <h1 className="text-h3 text-text-primary mb-3">
+        <h1 className="text-2xl md:text-h3 text-text-primary mb-3 break-words">
           {election?.title ?? (loadingElection ? 'Loading election…' : 'Election not found')}
         </h1>
         <p className="text-text-secondary">

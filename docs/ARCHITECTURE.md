@@ -211,34 +211,67 @@ Results page opens
 
 ---
 
-## 3. Proof Format on SUI
+## 3. Proof / VK / Public-Input Byte Layout (as-built)
 
-SUI's `sui::groth16` expects proofs in specific byte layout. Conversion:
+`sui::groth16` (BN254 flavour) consumes **arkworks canonical compressed**
+serialization — not a Sui-specific layout. The early draft of this doc warned
+about a c1/c0 swap for Fq2 points; **that swap is not needed for BN254** when
+you go through arkworks end-to-end. snarkjs stores Fp2 as `[c0, c1]`, and
+arkworks serializes x.c0 first, x.c1 second with the y-sign flag on the high
+bits of byte 63 — both conventions line up.
 
-**snarkjs output:**
-```json
-{
-  "pi_a": ["0x...", "0x..."],
-  "pi_b": [["0x...", "0x..."], ["0x...", "0x..."]],
-  "pi_c": ["0x...", "0x..."],
-  "protocol": "groth16",
-  "curve": "bn128"
-}
-```
+**snarkjs → arkworks compressed, 128 bytes total for a Groth16 proof:**
 
-**SUI format (256 bytes):**
-```
-[ A.x (32) | A.y (32) | B.x.c1 (32) | B.x.c0 (32) | B.y.c1 (32) | B.y.c0 (32) | C.x (32) | C.y (32) ]
-```
+| Offset | Field | Bytes | Encoding |
+|---|---|---|---|
+| 0..32  | A  (G1) | 32 | x LE with `SWFlags` in byte[31] top-2 bits |
+| 32..96 | B  (G2) | 64 | x.c0 LE ‖ x.c1 LE with `SWFlags` in byte[63] top-2 bits |
+| 96..128 | C (G1) | 32 | same as A |
 
-Note the **c1/c0 ordering is swapped** for Fq2 points (B coordinates). This is a common bug source. Test carefully on Day 3.
+`SWFlags` convention (arkworks 0.4):
+- bit 7 (`0x80`): y is "positive" — i.e., `y > (q − 1) / 2` for G1, lex-large
+  over (c1, c0) for G2.
+- bit 6 (`0x40`): point at infinity.
 
-**Public inputs format:**
+**Public-inputs layout (160 bytes, 5 × 32 LE scalars):**
+
 ```
 [ root (32) | nullifier (32) | election_id (32) | vote_public (32) | num_candidates (32) ]
 ```
 
-Use `scripts/export_vk.ts` to convert verification key to SUI-compatible bytes once, then commit the output to `move/sources/vk.move` as constants.
+Each field element is the Fr scalar in **little-endian 32 bytes**, matching
+`sui::groth16::public_proof_inputs_from_bytes`.
+
+**VK layout (424 bytes for our 5-public-input circuit):**
+
+```
+α_G1 (32) ‖ β_G2 (64) ‖ γ_G2 (64) ‖ δ_G2 (64) ‖ ICₗₑₙ u64-LE (8) ‖ IC₀..ICₙ each (32)
+```
+
+`ICₗₑₙ = nPublic + 1` (6 for NullVote). VK is identical across proofs and is
+baked into the Move package as a constant (`move/sources/vk.move`).
+
+**Conversion pipeline (two implementations, both verified byte-equivalent):**
+
+1. **Rust**, server-side / during build — `circuits/scripts/export_vk_rs`
+   reads `verification_key.json`, `proof.json`, `public.json` and emits
+   `vk.bin`, `proof_points.bin`, `public_inputs.bin`. This is what feeds
+   `move/sources/vk.move` + the Move integration tests.
+2. **TypeScript**, in-browser — `frontend/src/lib/groth16_bytes.ts` runs
+   inside the Web Worker after `snarkjs.groth16.fullProve` finishes. The
+   CI job `frontend/scripts/verify_groth16_bytes.mjs` asserts the JS output
+   is byte-identical to the Rust reference on the sample input.
+
+> **Pitfall log (keep these in mind):**
+>
+> - **Poseidon MDS indexing is row-major.** Our pure-Python port at
+>   `backend/src/crypto/poseidon.py` uses `M[i][j] * state[j]`. Transposing
+>   to `M[j][i] * state[j]` produces plausible-but-wrong hashes that don't
+>   collide with the canonical `Poseidon([1,2])` constant. CLAUDE.md
+>   documents the canonical vectors; verify before touching the matmul.
+> - **Powers-of-Tau size.** Our circuit has ≈5600 constraints, so the
+>   Phase-2 setup needs **pot14** (`2^14`), not the pot12 the scaffold
+>   downloaded. `setup.sh` already points at `pot14.ptau`.
 
 ---
 
@@ -272,43 +305,80 @@ Use `scripts/export_vk.ts` to convert verification key to SUI-compatible bytes o
 
 ---
 
-## 5. Performance Targets
+## 5. Performance (actuals)
 
-| Operation | Target | Hard limit |
-|---|---|---|
-| Witness generation (browser) | <1s | 3s |
-| Proof generation (browser) | <3s | 8s |
-| SUI `cast_vote` tx | <2s | 5s |
-| Event subscription latency | <500ms | 2s |
-| Page load (first paint) | <1s | 2s |
-| Merkle proof API response | <100ms | 500ms |
+| Operation | Target | Hard limit | Measured |
+|---|---|---|---|
+| Witness + proof generation (CLI, M-series laptop) | <3 s | 8 s | **≈1.04 s** |
+| `cast_vote` on testnet | <2 s | 5 s | ~1.5 s wall (0.003 SUI gas) |
+| `VoteCast` → tally repaint | <500 ms | 2 s | 2 s (polling cadence) |
+| Backend `/api/.../register` (p95, local SQLite) | <500 ms | — | **5.3 ms** |
+| Merkle proof build + fetch | <100 ms | 500 ms | ~10 ms for 10 voters |
+| Frontend first load (gzip) | — | — | ~200 KB after code-split |
 
-If proof generation exceeds 8s on target hardware, reduce Merkle depth 8 → 4 (16 voters max).
+The one limit that's still a live concern is **in-browser proof generation on
+low-end phones** — snarkjs WASM + 2.5 MB zkey is heavy on Android mid-range.
+The fallback from TIMELINE.md — reduce Merkle depth from 8 → 4 — remains the
+lever if that's ever an issue.
 
 ---
 
-## 6. Deployment Topology
+## 6. Deployment Topology (as-built)
+
+Live at https://nullvote.nullshift.sh on a shared Hostinger VPS
+(`76.13.183.138`) — **not** Vercel / Railway / Fly. The same VPS hosts
+football-predict, tasco-drive, ai-hub, etc.; Caddy multiplexes subdomains.
 
 ```
-Vercel (frontend)
+Cloudflare DNS (A record, proxied) ─ terminates edge TLS
     │
-    │ HTTPS
     ▼
-Backend (Railway / Fly.io)
+Caddy on 76.13.183.138:443 ─ terminates origin TLS
     │
-    │ RPC calls
     ▼
-SUI testnet (fullnode.testnet.sui.io)
+┌──────────────────────────────────────────────────────────────┐
+│ nullvote.nullshift.sh                                        │
+│  /api/*         → 127.0.0.1:8600  (FastAPI in Docker)        │
+│  /docs*         → 127.0.0.1:8600                             │
+│  /openapi.json  → 127.0.0.1:8600                             │
+│  /health        → 127.0.0.1:8600                             │
+│  /              → /opt/nullvote/frontend-dist  (Caddy static)│
+│  /circuit/*     → same, with 1-year immutable cache headers  │
+└──────────────────────────────────────────────────────────────┘
+                                       │
+                                       ▼
+                       SUI testnet fullnode (public RPC)
 ```
 
-**Frontend static assets:**
-- `vote.wasm` (~1MB) — bundled with frontend
-- `vote_final.zkey` (~20MB) — served from `/public/circuit/` or CDN
-- `verification_key.json` — bundled, public
+**Port map on the shared VPS (see also `project_football_predict_deploy`):**
+- `8600` — NullVote backend (127.0.0.1 bound; Caddy fronts).
+- `3600` — reserved for NullVote; currently unused because the frontend is
+  static and served directly by Caddy.
+
+**Frontend static assets (served from `/opt/nullvote/frontend-dist/`):**
+- `vote.wasm` (~2 MB)
+- `vote_final.zkey` (~2.5 MB)
+- `verification_key.json`
+- Code-split JS chunks (~200 KB gzip on initial page load).
+
+**Deploy:** `infra/deploy/deploy.sh` is idempotent — it rebuilds the frontend
+with `VITE_BACKEND_URL=""` (so the SPA talks to `/api/*` on the same origin),
+upserts the Cloudflare A record, rsyncs code, `docker compose up -d --build`,
+merges the Caddy block if absent, reloads Caddy, and smoke-tests `/health`.
 
 **Secrets management:**
-- Admin SUI private key: backend env var only
-- No frontend secrets (everything public, that's the ZK property)
+- VPS + Cloudflare credentials live in `infra/secrets/vps.env`, gitignored.
+  Rsync'd into place by the deploy script; not baked into images.
+- Admin's SUI private key is **not** on the server — the backend emits the
+  `sui client call` command for `finalize_registration` and the admin signs
+  it locally (via the Admin page in the UI or directly from their terminal).
+- No frontend secrets (the whole point of the ZK design: anything the client
+  needs to see can be public).
+
+**CI** (`.github/workflows/ci.yml`) runs on push / PR: JS Poseidon canonical
+vectors, Python pytest (Poseidon + Merkle), frontend typecheck+build,
+JS-vs-Rust byte equivalence, Rust exporter build. Move tests run locally
+only — adding a GitHub action that installs `sui` is deferred.
 
 ---
 
