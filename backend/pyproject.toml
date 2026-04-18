@@ -8,6 +8,7 @@ dependencies = [
   "pydantic>=2.6",
   "sqlalchemy>=2.0",
   "aiosqlite>=0.20",
+  "greenlet>=3.0",
   "pysui>=0.60",
   "python-dotenv>=1.0"
 ]
