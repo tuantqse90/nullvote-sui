@@ -5,7 +5,7 @@
   "scripts": {
     "compile": "bash scripts/compile.sh",
     "setup": "bash scripts/setup.sh",
-    "test": "ts-node scripts/test_vectors.ts",
+    "test": "node scripts/test_vectors.ts",
     "prove": "bash scripts/test_proof.sh"
   },
   "devDependencies": {
