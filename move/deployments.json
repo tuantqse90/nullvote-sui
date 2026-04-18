@@ -1,0 +1,8 @@
+{
+  "testnet": {
+    "package_id": "0x669ec8fee063206af29be9407865b5e2698f0f8f604b568c97c4e296acdb63be",
+    "upgrade_cap": "0xbfb3b7dff07155dcffebd048ef55c4469100755f04d4d1f79b7073a928bbdf25",
+    "deployed_at": "2026-04-18T13:50:00Z",
+    "notes": "First Day-3 E2E-verified deployment. create/finalize/cast/double-vote all tested."
+  }
+}

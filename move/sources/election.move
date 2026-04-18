@@ -57,9 +57,15 @@ module nullvote::election {
     public struct Election has key {
         id: UID,
         admin: address,
+        /// Admin-assigned election identifier. Feeds into the circuit's nullifier
+        /// so the same voter in two elections produces two different nullifiers —
+        /// admins MUST pick a fresh value per election. Chosen as `u64` to fit
+        /// the low 8 bytes of a 32-byte field-element public input, with the
+        /// remaining 24 bytes constrained to zero on-chain.
+        election_id: u64,
         title: String,
         candidates: vector<String>,
-        /// Poseidon Merkle root (32 BE/LE bytes as produced by circuit). Empty during Registration.
+        /// Poseidon Merkle root (32 bytes). Empty during Registration.
         merkle_root: vector<u8>,
         /// 32-byte Poseidon nullifier → true. Presence means already-voted.
         nullifiers: Table<vector<u8>, bool>,
@@ -72,7 +78,11 @@ module nullvote::election {
     // ── Entry points ────────────────────────────────────────────────────
 
     /// Create a new election. Any address may call this; they become the admin.
+    /// `election_id` is the unique identifier fed into the circuit's nullifier
+    /// function; admins MUST choose a fresh value per election (conventionally
+    /// a random u64 or `tx_context::epoch_timestamp_ms`).
     public fun create_election(
+        election_id: u64,
         title_bytes: vector<u8>,
         candidate_bytes: vector<vector<u8>>,
         end_time_ms: u64,
@@ -99,6 +109,7 @@ module nullvote::election {
         let election = Election {
             id: object::new(ctx),
             admin,
+            election_id,
             title,
             candidates,
             merkle_root: vector::empty(),
@@ -111,6 +122,7 @@ module nullvote::election {
         events::emit_created(
             object::uid_to_inner(&election.id),
             admin,
+            election_id,
             election.title,
             election.candidates,
             end_time_ms,
@@ -158,7 +170,8 @@ module nullvote::election {
         assert!(claimed_root == election.merkle_root, EBadMerkleRoot);
 
         let claimed_election_id = slice(&public_inputs_bytes, OFF_ELECTION_ID, FIELD_BYTES);
-        assert!(election_id_matches(object::uid_to_inner(&election.id), &claimed_election_id), EBadElectionId);
+        assert!(field_bytes_to_u64(&claimed_election_id) == election.election_id, EBadElectionId);
+        assert!(high_24_bytes_zero(&claimed_election_id), EBadElectionId);
 
         let vote_bytes = slice(&public_inputs_bytes, OFF_VOTE, FIELD_BYTES);
         let vote_index = field_bytes_to_u64(&vote_bytes);
@@ -253,29 +266,18 @@ module nullvote::election {
         v
     }
 
-    /// Check that the circuit's election_id (32 bytes LE) matches the object's
-    /// ID reduced to a field element. We take the low 31 bytes of the object
-    /// address as the election_id — always < BN254 field prime, and both client
-    /// and chain can derive it deterministically.
-    fun election_id_matches(id: ID, claimed_bytes: &vector<u8>): bool {
-        let id_bytes = object::id_to_bytes(&id); // 32-byte address, big-endian
-        // Take bytes [1..32) reversed → 31 LE bytes. High byte of claimed must be 0.
-        if (*vector::borrow(claimed_bytes, 31) != 0) return false;
-        let mut i: u64 = 0;
-        while (i < 31) {
-            let claimed_byte = *vector::borrow(claimed_bytes, i);
-            // id_bytes is BE; our LE index i corresponds to id_bytes[31 - i].
-            let expected = *vector::borrow(&id_bytes, 31 - i);
-            if (claimed_byte != expected) return false;
+    /// Verify that bytes [8..32) of a 32-byte LE field-element encoding are
+    /// all zero, confirming the public input fits in u64.
+    fun high_24_bytes_zero(bytes: &vector<u8>): bool {
+        let mut i: u64 = 8;
+        while (i < FIELD_BYTES) {
+            if (*vector::borrow(bytes, i) != 0) return false;
             i = i + 1;
         };
         true
     }
 
-    // ── Test-only helpers ───────────────────────────────────────────────
-
-    #[test_only]
-    public fun election_id_matches_for_test(id: ID, claimed: vector<u8>): bool {
-        election_id_matches(id, &claimed)
+    public fun election_id(election: &Election): u64 {
+        election.election_id
     }
 }

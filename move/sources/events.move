@@ -8,6 +8,8 @@ module nullvote::events {
     public struct ElectionCreated has copy, drop {
         election_id: ID,
         admin: address,
+        /// Admin-assigned election identifier (matches circuit nullifier input).
+        circuit_election_id: u64,
         title: String,
         candidates: vector<String>,
         end_time_ms: u64,
@@ -33,11 +35,12 @@ module nullvote::events {
     public(package) fun emit_created(
         election_id: ID,
         admin: address,
+        circuit_election_id: u64,
         title: String,
         candidates: vector<String>,
         end_time_ms: u64,
     ) {
-        event::emit(ElectionCreated { election_id, admin, title, candidates, end_time_ms });
+        event::emit(ElectionCreated { election_id, admin, circuit_election_id, title, candidates, end_time_ms });
     }
 
     public(package) fun emit_registration_closed(election_id: ID, merkle_root: vector<u8>) {
