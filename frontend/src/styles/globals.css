@@ -1,0 +1,110 @@
+@import '@fontsource-variable/inter';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+@import '@fontsource/jetbrains-mono/700.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+  }
+
+  body {
+    @apply bg-bg text-text-secondary font-body antialiased;
+    font-feature-settings: 'cv11', 'ss01';
+    letter-spacing: -0.01em;
+  }
+
+  h1, h2, h3, h4 {
+    @apply text-text-primary font-display;
+  }
+
+  /* Strip default focus outline — we restyle per-component. */
+  :focus-visible {
+    @apply outline-none;
+  }
+}
+
+@layer components {
+  /* ── Button primitives ────────────────────────────────────────── */
+  .btn-primary {
+    @apply inline-flex items-center gap-2 rounded-md bg-accent px-7 py-4
+           font-display text-base font-medium text-text-onAccent
+           transition-[background,transform] duration-150
+           hover:bg-[#EEFF5A] active:translate-y-px;
+    letter-spacing: -0.01em;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center gap-2 rounded-md bg-bg-elevated
+           border border-bg-high px-7 py-4 font-display text-base
+           font-medium text-text-primary transition-colors duration-150
+           hover:bg-bg-raised;
+    letter-spacing: -0.01em;
+  }
+
+  .btn-primary:disabled,
+  .btn-secondary:disabled {
+    @apply opacity-50 cursor-not-allowed hover:bg-accent hover:bg-bg-elevated;
+  }
+
+  /* ── Cards / inputs ───────────────────────────────────────────── */
+  .card {
+    @apply bg-bg-elevated rounded-lg p-8;
+  }
+
+  .input {
+    @apply w-full rounded-md bg-bg-elevated border border-bg-raised
+           px-4 py-3 font-body text-base text-text-primary placeholder:text-text-muted
+           transition-colors duration-150
+           focus:border-accent focus:bg-bg-raised;
+  }
+
+  /* ── Hashes, censored data, live indicators ──────────────────── */
+  .hash {
+    @apply font-mono text-sm text-text-tertiary;
+    letter-spacing: 0.02em;
+  }
+
+  .live-badge {
+    @apply inline-flex items-center gap-2 rounded-full bg-accent-subtle
+           px-3 py-1 text-sm font-medium text-accent;
+  }
+
+  .live-dot {
+    display: inline-block;
+    color: theme('colors.accent.DEFAULT');
+    animation: live-pulse 1500ms ease-in-out infinite;
+  }
+
+  .phase-marker {
+    @apply flex items-center gap-3 font-mono text-sm uppercase text-text-secondary;
+    letter-spacing: 0.1em;
+  }
+
+  /* ── Hero treatment ───────────────────────────────────────────── */
+  .hero-repeat {
+    @apply font-display;
+    font-size: theme('fontSize.hero[0]');
+    line-height: 0.8;
+    letter-spacing: -0.08em;
+  }
+  .hero-repeat-1 { opacity: 1; }
+  .hero-repeat-2 { opacity: 0.5; }
+  .hero-repeat-3 { opacity: 0.2; }
+}
+
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.3; }
+}
